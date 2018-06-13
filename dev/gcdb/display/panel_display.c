@@ -157,6 +157,12 @@ int dsi_panel_init(struct msm_panel_info *pinfo,
 	if (pstruct->paneldata->panel_operating_mode & DST_SPLIT_FLAG)
 		pinfo->lcdc.dst_split = 1;
 
+	//dprintf(CRITICAL, "%s: yxw test0417 pinfo->lcdc.dual_pipe =%d\n", __func__,pinfo->lcdc.dual_pipe);
+	//dprintf(CRITICAL, "%s: yxw test0417 pinfo->lcdc.pipe_swap =%d\n", __func__,pinfo->lcdc.pipe_swap);
+	//dprintf(CRITICAL, "%s: yxw test0417 pinfo->lcdc.split_display =%d\n", __func__,pinfo->lcdc.split_display);
+	//dprintf(CRITICAL, "%s: yxw test0417 pinfo->lcdc.dst_split =%d\n", __func__,pinfo->lcdc.dst_split);
+
+
 	/* Color setting*/
 	pinfo->lcdc.border_clr = pstruct->color->border_color;
 	pinfo->lcdc.underflow_clr = pstruct->color->underflow_color;

@@ -248,9 +248,9 @@ uint32_t get_vibration_type()
 	case HW_PLATFORM_MTP:
 		switch(platform){
 		case MSM8952:
-			ret = VIB_ERM_TYPE;
-			break;
 		case MSM8976:
+			ret = VIB_ERM_TYPE;
+			break;		
 		case MSM8956:
 		case APQ8056:
 			ret = VIB_LRA_TYPE;

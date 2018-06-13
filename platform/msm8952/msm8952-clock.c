@@ -280,6 +280,82 @@ static struct branch_clk gcc_sdcc2_ahb_clk =
 		.ops      = &clk_ops_branch,
 	},
 };
+//yxw add
+/* BLSP1_QUP2 Clocks */
+static struct clk_freq_tbl ftbl_gcc_blsp1_qup2_i2c_apps_clk_src[] =
+{
+	F(      96000,    cxo,  10,   1,  2),
+	F(    4800000,    cxo,   4,   0,  0),
+	F(    9600000,    cxo,   2,   0,  0),
+	F(   16000000,  gpll0,  10,   1,  5),
+	F(   19200000,  gpll0,   1,   0,  0),
+	F(   25000000,  gpll0,  16,   1,  2),
+	F(   50000000,  gpll0,  16,   0,  0),
+	F_END
+};
+static struct rcg_clk gcc_blsp1_qup2_i2c_apps_clk_src =
+{
+	.cmd_reg      = (uint32_t *) GCC_BLSP1_QUP2_CMD_RCGR,
+	.cfg_reg      = (uint32_t *) GCC_BLSP1_QUP2_CFG_RCGR,
+	.set_rate     = clock_lib2_rcg_set_rate_hid,
+	.freq_tbl     = ftbl_gcc_blsp1_qup2_i2c_apps_clk_src,
+	.current_freq = &rcg_dummy_freq,
+
+	.c = {
+		.dbg_name = "gcc_blsp1_qup2_i2c_apps_clk_src",
+		.ops      = &clk_ops_rcg,
+	},
+};
+static struct branch_clk gcc_blsp1_qup2_i2c_apps_clk = {
+	.cbcr_reg = (uint32_t *) GCC_BLSP1_QUP2_APPS_CBCR,
+	.parent   = &gcc_blsp1_qup2_i2c_apps_clk_src.c,
+
+	.c = {
+		.dbg_name = "gcc_blsp1_qup2_i2c_apps_clk",
+		.ops      = &clk_ops_branch,
+	},
+};
+//end
+
+static struct clk_freq_tbl ftbl_blsp_i2c_apps_clk_src[] = {
+	F(  19200000,             cxo,    1,    0,     0),
+	F(  50000000,          gpll0,   16,    0,     0),
+	F_END
+};
+
+
+static struct vote_clk gcc_blsp2_ahb_clk = {
+	.cbcr_reg     = (uint32_t *) BLSP2_AHB_CBCR,
+	.vote_reg     = (uint32_t *) APCS_CLOCK_BRANCH_ENA_VOTE,
+	.en_mask      = BIT(20),
+
+	.c = {
+		.dbg_name = "gcc_blsp2_ahb_clk",
+		.ops      = &clk_ops_vote,
+	},
+};
+
+static struct rcg_clk blsp2_qup4_i2c_apps_clk_src = {
+	.cmd_reg = 	(uint32_t *)BLSP2_QUP4_I2C_APPS_CMD_RCGR,
+	.cfg_reg      = (uint32_t *)BLSP2_QUP4_I2C_APPS_CFG_RCGR,
+	.set_rate = clock_lib2_rcg_set_rate_hid,
+	.freq_tbl = ftbl_blsp_i2c_apps_clk_src,
+	.current_freq = &rcg_dummy_freq,
+	.c = {
+		.dbg_name = "blsp2_qup4_i2c_apps_clk_src",
+		.ops = &clk_ops_rcg,
+	},
+};
+
+static struct branch_clk gcc_blsp2_qup4_i2c_apps_clk = {
+	.cbcr_reg = (uint32_t *)BLSP2_QUP4_I2C_APPS_CBCR,
+	.has_sibling = 0,
+	.parent = &blsp2_qup4_i2c_apps_clk_src.c,
+	.c = {
+		.dbg_name = "gcc_blsp2_qup4_i2c_apps_clk",
+		.ops = &clk_ops_branch,
+	},
+};
 
 /* UART Clocks */
 static struct clk_freq_tbl ftbl_gcc_blsp1_2_uart1_2_apps_clk[] =
@@ -616,6 +692,13 @@ static struct clk_lookup msm_clocks_8952[] =
 	CLK_LOOKUP("ce1_axi_clk",  gcc_ce1_axi_clk.c),
 	CLK_LOOKUP("ce1_core_clk", gcc_ce1_clk.c),
 	CLK_LOOKUP("ce1_src_clk",  ce1_clk_src.c),
+	//yxw add
+	CLK_LOOKUP("blsp1_qup2_ahb_iface_clk", gcc_blsp1_ahb_clk.c),
+	CLK_LOOKUP("gcc_blsp1_qup2_i2c_apps_clk_src", gcc_blsp1_qup2_i2c_apps_clk_src.c),
+	CLK_LOOKUP("gcc_blsp1_qup2_i2c_apps_clk", gcc_blsp1_qup2_i2c_apps_clk.c),
+	//end
+	CLK_LOOKUP("gcc_blsp2_ahb_clk", gcc_blsp2_ahb_clk.c),
+	CLK_LOOKUP("gcc_blsp2_qup4_i2c_apps_clk", gcc_blsp2_qup4_i2c_apps_clk.c),
 };
 
 void msm8956_clock_override()

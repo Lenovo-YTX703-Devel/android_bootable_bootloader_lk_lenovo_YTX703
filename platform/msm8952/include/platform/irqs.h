@@ -62,4 +62,7 @@
                                                NR_BOARD_IRQS)
 
 #define SMD_IRQ                                (GIC_SPI_START + 168)
+
+#define BLSP_QUP_IRQ(blsp_id, qup_id)        ( ((blsp_id) == 1) ?  (GIC_SPI_START + 95 + qup_id) \
+												:  (GIC_SPI_START + 298 + (qup_id)))
 #endif /* __IRQS_MSM8952_H */

@@ -640,6 +640,543 @@ patch_gpt(uint8_t *gptImage, uint64_t density, uint32_t array_size,
 
 }
 
+#ifdef ODMM_CONFIG_PARTITION_UPGRADE
+
+extern void *target_get_scratch_address(void);
+
+#define FUNC_ENTRY() \
+	dprintf(INFO, "%s \t<START>\n", __func__)
+
+#define FUNC_EXIT() \
+	dprintf(INFO, "%s \t<END>\n", __func__)
+
+#define UPGRADE_ERR_NEED_WRITEBACK		1
+#define UPGRADE_ERR_NO_PARTITION			-1
+#define UPGRADE_ERR_NO_SIZE_SMALLER		-2
+
+
+struct backup_partition_entry
+{
+	char*		name;
+	uint64_t		ptn;
+	uint64_t		size;
+	uint8_t		lun;
+	uint8_t		*data;
+	uint64_t		data_size;
+};
+
+struct bk_pt_entry_node {
+	struct list_node node;
+	struct backup_partition_entry * bk_pt_entry_m;
+};
+
+
+static char *backup_partition_names[] ={
+		"fsg",
+		"modemst1",
+		"modemst2",
+		"countrycode",
+		"userstore"
+};
+
+static char *erase_partition_names[] = {
+		"userdata",
+		"DDR",
+		"keystore",
+		"config",
+		"oem",
+		"frpt"
+};
+static struct partition_entry *upgrade_partition_entries;
+static unsigned upgrade_partition_count;
+static struct bk_pt_entry_node  *upgrade_bk_pt_queue;
+
+static void retrieve_upgrade_gpt_partition_info(uint8_t *partition_array_start, uint32_t max_partition_count, uint32_t part_entry_size, uint32_t block_size)
+{
+	unsigned int i = 0;	/* Counter for each block */
+	unsigned int j = 0;	/* Counter for each entry in a block */
+	unsigned int n = 0;	/* Counter for UTF-16 -> 8 conversion */
+	unsigned char UTF16_name[MAX_GPT_NAME_SIZE];
+	uint32_t part_entry_cnt = block_size / ENTRY_SIZE;
+	uint8_t *data = NULL;
+
+	FUNC_ENTRY();
+	if(!upgrade_partition_entries)
+	{
+		upgrade_partition_entries = (struct partition_entry *) calloc(NUM_PARTITIONS, sizeof(struct partition_entry));
+		dprintf(ALWAYS, "upgrade_partition_entries = %p\n", upgrade_partition_entries);
+		ASSERT(upgrade_partition_entries);
+	}
+	upgrade_partition_count = 0;
+	for (i = 0; i < (ROUNDUP(max_partition_count, part_entry_cnt)) / part_entry_cnt; i++) {
+		ASSERT(upgrade_partition_count < NUM_PARTITIONS);
+		data = partition_array_start + i * block_size;
+		for (j = 0; j < part_entry_cnt; j++) {
+			memcpy(&(upgrade_partition_entries[upgrade_partition_count].type_guid),
+			       &data[(j * part_entry_size)],
+			       PARTITION_TYPE_GUID_SIZE);
+			if (upgrade_partition_entries[upgrade_partition_count].type_guid[0] ==
+			    0x00
+			    && upgrade_partition_entries[upgrade_partition_count].
+			    type_guid[1] == 0x00) {
+				i = ROUNDUP(max_partition_count, part_entry_cnt);
+				break;
+			}
+			memcpy(&
+			       (upgrade_partition_entries[upgrade_partition_count].
+				unique_partition_guid),
+			       &data[(j * part_entry_size) +
+				     UNIQUE_GUID_OFFSET],
+			       UNIQUE_PARTITION_GUID_SIZE);
+			upgrade_partition_entries[upgrade_partition_count].first_lba =
+			    GET_LLWORD_FROM_BYTE(&data
+						 [(j * part_entry_size) +
+						  FIRST_LBA_OFFSET]);
+			upgrade_partition_entries[upgrade_partition_count].last_lba =
+			    GET_LLWORD_FROM_BYTE(&data
+						 [(j * part_entry_size) +
+						  LAST_LBA_OFFSET]);
+			upgrade_partition_entries[upgrade_partition_count].size =
+			    upgrade_partition_entries[upgrade_partition_count].last_lba -
+			    upgrade_partition_entries[upgrade_partition_count].first_lba + 1;
+			upgrade_partition_entries[upgrade_partition_count].attribute_flag =
+			    GET_LLWORD_FROM_BYTE(&data
+						 [(j * part_entry_size) +
+						  ATTRIBUTE_FLAG_OFFSET]);
+
+			memset(&UTF16_name, 0x0, MAX_GPT_NAME_SIZE);
+			memcpy(UTF16_name, &data[(j * part_entry_size) +
+						 PARTITION_NAME_OFFSET],
+			       MAX_GPT_NAME_SIZE);
+			upgrade_partition_entries[upgrade_partition_count].lun = mmc_get_lun();
+
+			/*
+			 * Currently partition names in *.xml are UTF-8 and lowercase
+			 * Only supporting english for now so removing 2nd byte of UTF-16
+			 */
+			for (n = 0; n < MAX_GPT_NAME_SIZE / 2; n++) {
+				upgrade_partition_entries[upgrade_partition_count].name[n] =
+				    UTF16_name[n * 2];
+			}
+			upgrade_partition_count++;
+		}
+	}
+	FUNC_EXIT();
+}
+
+/*
+ * Find index of parition in array of partition entries
+ */
+int upgrade_partition_get_index(const char *name)
+{
+	unsigned int input_string_length = strlen(name);
+	unsigned n;
+
+	if( upgrade_partition_count >= NUM_PARTITIONS)
+	{
+		return INVALID_PTN;
+	}
+	for (n = 0; n < upgrade_partition_count; n++) {
+		if (!memcmp
+		    (name, &upgrade_partition_entries[n].name, input_string_length)
+		    && input_string_length ==
+		    strlen((const char *)&upgrade_partition_entries[n].name)) {
+			return n;
+		}
+	}
+	return INVALID_PTN;
+}
+
+/* Get size of the partition */
+unsigned long long upgrade_partition_get_size(int index)
+{
+	uint32_t block_size;
+
+	block_size = mmc_get_device_blocksize();
+
+	if (index == INVALID_PTN)
+		return 0;
+	else {
+		return upgrade_partition_entries[index].size * block_size;
+	}
+}
+
+/* Get offset of the partition */
+unsigned long long upgrade_partition_get_offset(int index)
+{
+	uint32_t block_size;
+
+	block_size = mmc_get_device_blocksize();
+
+	if (index == INVALID_PTN)
+		return 0;
+	else {
+		return upgrade_partition_entries[index].first_lba * block_size;
+	}
+}
+
+static int compare_partitions(void)
+{
+	int ret = 1;
+	int i = 0;
+	int index = 0;
+	char *name = NULL;
+	FUNC_ENTRY();
+	do{
+		if(upgrade_partition_count != partition_count){
+			break;
+		}
+		for(i = 0; i < (int)partition_count; i++){
+			name = (char *)upgrade_partition_entries[i].name;
+			index = partition_get_index(name);
+			if(index == INVALID_PTN){
+				break;
+			}
+			if(partition_get_size(index) != upgrade_partition_get_size(i)){
+				break;
+			}
+			if(partition_get_offset(index) != upgrade_partition_get_offset(i)){
+				break;
+			}
+		}
+		if(i == (int)partition_count){
+			ret = 0;
+		}
+	}while(0);
+	FUNC_EXIT();
+	return ret;
+}
+
+static int compare_backup_partitions(char**partition_names, int partition_count)
+{
+	int ret = 0;
+	int i = 0;
+	int index = 0;
+	int upgrade_index = 0;
+
+	FUNC_ENTRY();
+	do{
+		if(partition_names == NULL || partition_count == 0){
+			ret = 0;
+			break;
+		}
+		for(i = 0; i < partition_count; i++){
+			index = partition_get_index(partition_names[i]);
+			upgrade_index = upgrade_partition_get_index(partition_names[i]);
+			if(index == INVALID_PTN || upgrade_index == INVALID_PTN){
+				ret = UPGRADE_ERR_NEED_WRITEBACK;
+				dprintf(ALWAYS, "Partition %s not found!!!\n", partition_names[i]);
+				continue;
+			}
+			if(partition_get_size(index) > upgrade_partition_get_size(upgrade_index)){
+				dprintf(ALWAYS, "Partition %s size changed to smaller!!!\n", partition_names[i]);
+				ret = UPGRADE_ERR_NO_SIZE_SMALLER;
+				break;
+			}
+			if(partition_get_offset(index) != upgrade_partition_get_offset(upgrade_index)){
+				dprintf(ALWAYS, "Partition %s offset changed!!!\n", partition_names[i]);
+				ret = UPGRADE_ERR_NEED_WRITEBACK;
+				continue;
+			}
+		}
+	}while(0);
+	FUNC_EXIT();
+	return ret;
+}
+
+
+static struct bk_pt_entry_node *bk_pt_list_init(void)
+{
+	struct bk_pt_entry_node *node_ptr = NULL;
+
+	node_ptr = (struct bk_pt_entry_node *)
+		malloc(sizeof(struct bk_pt_entry_node));
+
+	ASSERT(node_ptr);
+
+	list_clear_node(&node_ptr->node);
+	node_ptr->bk_pt_entry_m = (struct backup_partition_entry *)
+			malloc(sizeof(struct backup_partition_entry));
+	ASSERT(node_ptr->bk_pt_entry_m);
+
+	memset(node_ptr->bk_pt_entry_m ,0 ,sizeof(struct backup_partition_entry));
+	return node_ptr;
+}
+
+static void bk_pt_list_destroy(struct bk_pt_entry_node * queue)
+{
+	struct bk_pt_entry_node * bk_pt_entry_temp = NULL;
+	struct bk_pt_entry_node *bk_pt_list = NULL;
+	if(queue == NULL){
+		return;
+	}
+	list_for_every_entry(&queue->node, bk_pt_entry_temp, struct bk_pt_entry_node, node){
+		bk_pt_list = (struct bk_pt_entry_node *)(bk_pt_entry_temp->node.prev);
+		if (list_in_list(&bk_pt_entry_temp->node)) {
+				list_delete(&bk_pt_entry_temp->node);
+				free(bk_pt_entry_temp->bk_pt_entry_m);
+				free(bk_pt_entry_temp);
+		}
+		bk_pt_entry_temp = bk_pt_list;
+	}
+	list_delete(&queue->node);
+	free(queue->bk_pt_entry_m);
+	free(queue);
+}
+
+static int reserve_backup_partitions(char**partition_names, int partition_count, uint64_t device_density)
+{
+	unsigned long long ptn = 0;
+	unsigned long long size = 0;
+	unsigned long long begin = 0;
+	int index = INVALID_PTN;
+	unsigned int ret = 1;
+	uint8_t lun = 0;
+	unsigned long long align_size = 0;
+	unsigned long long block_size = 0;
+	struct bk_pt_entry_node *bk_pt_entry_queue = NULL;
+	struct bk_pt_entry_node * bk_pt_entry_temp = NULL;
+	struct bk_pt_entry_node *bk_pt_list = NULL;
+	struct backup_partition_entry *entry_ptr = NULL;
+	int i = 0;
+	FUNC_ENTRY();
+	bk_pt_entry_queue = bk_pt_list_init();
+	list_initialize(&bk_pt_entry_queue->node);
+	do{
+		if(partition_names == NULL || partition_count == 0){
+			break;
+		}
+
+		for(i = 0; i < partition_count; i++){
+			index = partition_get_index(partition_names[i]);
+			if(index == INVALID_PTN){
+				break;
+			}
+			ptn = partition_get_offset(index);
+			size = partition_get_size(index);
+			if(size <= 0){
+				break;
+			}
+			lun = partition_get_lun(index);
+			bk_pt_list = bk_pt_list_init();
+			entry_ptr = bk_pt_list->bk_pt_entry_m;
+			entry_ptr->size = size;
+			entry_ptr->lun = lun;
+			entry_ptr->ptn = ptn;
+			entry_ptr->name = partition_names[i];
+			list_for_every_entry(&bk_pt_entry_queue->node, bk_pt_entry_temp, struct bk_pt_entry_node, node){
+				entry_ptr = bk_pt_entry_temp->bk_pt_entry_m;
+				if(entry_ptr->ptn > ptn){
+					list_add_before(&bk_pt_entry_temp->node, &bk_pt_list->node);
+					break;
+				} else {
+
+				}
+			}
+			if(!list_in_list(&bk_pt_list->node)){
+				list_add_before(&bk_pt_entry_queue->node, &bk_pt_list->node);
+			}
+		}
+		if(i != partition_count){
+			break;
+		}
+		block_size = mmc_get_device_blocksize();
+		if(block_size <= 0){
+			break;
+		}
+
+		list_for_every_entry(&bk_pt_entry_queue->node, bk_pt_entry_temp, struct bk_pt_entry_node, node){
+			entry_ptr = bk_pt_entry_temp->bk_pt_entry_m;
+			ptn = entry_ptr->ptn;
+			size = entry_ptr->size;
+			lun = entry_ptr->lun;
+			mmc_set_lun(lun);
+			dprintf(INFO,
+				"Backup partition: %s\n",entry_ptr->name);
+			align_size = ((ptn -begin) / block_size) * block_size;
+			if(align_size <= 0){
+				begin = ((ptn + size + block_size - 1) / block_size) * block_size;
+				continue;
+			}
+			dprintf(INFO,
+				"Begin to erase from %llu, size: %llu\n", begin / block_size, align_size /block_size);
+			ret = mmc_erase_card(begin, align_size);
+			if(ret){
+				dprintf(CRITICAL,
+					"Failed to erase from %llu, size: %llu\n", begin / block_size, align_size / block_size);
+			}
+			begin = ((ptn + size + block_size - 1) / block_size) * block_size;
+		}
+		if((device_density - begin) <= 0){
+			break;
+		}
+		dprintf(INFO,
+			"Begin to erase from %llu, size: %llu\n", begin / block_size , (device_density - begin) / block_size);
+		ret = mmc_erase_card(begin, device_density - begin);
+		if(ret){
+			dprintf(CRITICAL,
+				"Failed to erase from %llu,size: %llu\n", begin / block_size, (device_density - begin) / block_size);
+			break;
+		}
+	}while(0);
+	bk_pt_list_destroy(bk_pt_entry_queue);
+	FUNC_EXIT();
+	return ret;
+}
+
+static int read_backup_partitions_content(char**partition_names, int partition_count, uint64_t device_density)
+{
+	unsigned long long ptn = 0;
+	unsigned long long size = 0;
+	int index = INVALID_PTN;
+	int upgrade_index = INVALID_PTN;
+	unsigned int ret = UPGRADE_ERR_NO_PARTITION;
+	uint32_t scratch_address = 0;
+	struct bk_pt_entry_node *bk_pt_entry_queue = NULL;
+	struct bk_pt_entry_node * bk_pt_entry_temp = NULL;
+	struct bk_pt_entry_node *bk_pt_list = NULL;
+	struct backup_partition_entry *entry_ptr = NULL;
+	int i = 0;
+	FUNC_ENTRY();
+	bk_pt_entry_queue = upgrade_bk_pt_queue = bk_pt_list_init();
+	list_initialize(&bk_pt_entry_queue->node);
+	do{
+		if(partition_names == NULL || partition_count == 0){
+			break;
+		}
+		/*We use scrastch address offset 128KB to store backup partitions content,
+		as we know, 128KB size is big enough for pgt partition content.*/
+		scratch_address = (uint32_t)target_get_scratch_address();
+		scratch_address += 1024 * 1024 * 128;
+		scratch_address = ROUNDUP(scratch_address, CACHE_LINE);
+		for(i = 0; i < partition_count; i++){
+			index = partition_get_index(partition_names[i]);
+			upgrade_index = upgrade_partition_get_index(partition_names[i]);
+			if(index == INVALID_PTN || upgrade_index == INVALID_PTN){
+				continue;
+			}
+			ptn = partition_get_offset(index);
+			size = partition_get_size(index);
+			if(size <= 0){
+				break;
+			}
+			bk_pt_list = bk_pt_list_init();
+			entry_ptr = bk_pt_list->bk_pt_entry_m;
+			entry_ptr->size = upgrade_partition_get_size(upgrade_index);
+			entry_ptr->ptn = upgrade_partition_get_offset(upgrade_index);
+			entry_ptr->name = partition_names[i];
+			entry_ptr->data = (uint8_t*)scratch_address;
+			entry_ptr->data_size = size;
+			scratch_address += size;
+			scratch_address = ROUNDUP(scratch_address, CACHE_LINE);
+			if(entry_ptr->data != NULL){
+				dprintf(INFO,
+					"Read partition: %s from %llu, size: %llu\n", entry_ptr->name, ptn, size);
+				if(mmc_read(ptn, (unsigned int*)(entry_ptr->data), size)){
+					dprintf(CRITICAL,
+						"Failed to read partition: %s from %llu, size: %llu\n", entry_ptr->name, ptn, size);
+					entry_ptr->data_size = 0;
+				}
+			} else {
+				entry_ptr->data_size = 0;
+			}
+			ptn = entry_ptr->ptn;
+
+			list_for_every_entry(&bk_pt_entry_queue->node, bk_pt_entry_temp, struct bk_pt_entry_node, node){
+				entry_ptr = bk_pt_entry_temp->bk_pt_entry_m;
+				if(entry_ptr->ptn > ptn){
+					list_add_before(&bk_pt_entry_temp->node, &bk_pt_list->node);
+					break;
+				}
+			}
+			if(!list_in_list(&bk_pt_list->node)){
+				list_add_before(&bk_pt_entry_queue->node, &bk_pt_list->node);
+			}
+		}
+		if(i != partition_count){
+			break;
+		}
+		ret = 0;
+	}while(0);
+	if(ret){
+		bk_pt_list_destroy(bk_pt_entry_queue);
+		upgrade_bk_pt_queue = NULL;
+	} else {
+		ret = UPGRADE_ERR_NEED_WRITEBACK;
+	}
+	FUNC_EXIT();
+	return ret;
+}
+
+static void writeback_backup_partitions_content_ifneed(void)
+{
+	struct bk_pt_entry_node *bk_pt_entry_queue = NULL;
+	struct bk_pt_entry_node * bk_pt_entry_temp = NULL;
+	struct backup_partition_entry *entry_ptr = NULL;
+	FUNC_ENTRY();
+	if(upgrade_bk_pt_queue != NULL){
+		bk_pt_entry_queue = upgrade_bk_pt_queue;
+		list_for_every_entry(&bk_pt_entry_queue->node, bk_pt_entry_temp, struct bk_pt_entry_node, node){
+			entry_ptr = bk_pt_entry_temp->bk_pt_entry_m;
+			if(entry_ptr->data_size){
+				dprintf(INFO,
+					"Begin to write partition: %s from %llu, size: %llu\n", entry_ptr->name, entry_ptr->ptn, entry_ptr->data_size);
+				if(mmc_write(entry_ptr->ptn, entry_ptr->data_size, (unsigned int *)(entry_ptr->data))){
+					dprintf(CRITICAL,
+						"Failed to write partition: %s from %llu, size: %llu\n", entry_ptr->name, entry_ptr->ptn, entry_ptr->data_size);
+				}
+			}
+		}
+		bk_pt_list_destroy(bk_pt_entry_queue);
+		upgrade_bk_pt_queue = NULL;
+	}
+	FUNC_EXIT();
+}
+
+static int do_partitions_upgrade(uint64_t device_density)
+{
+	int ret = 0;
+	char ** partition_names = (char **)backup_partition_names;
+	int pt_count = sizeof(backup_partition_names) / sizeof(backup_partition_names[0]);
+	FUNC_ENTRY();
+	ret = compare_partitions();
+	dprintf(INFO, "compare_partitions.ret = %d\n", ret);
+
+	if(ret == 0){
+		int i = 0;
+		int erase_pt_count = sizeof(erase_partition_names) / sizeof(erase_partition_names[0]);
+		unsigned long long ptn = 0;
+		unsigned long long size = 0;
+		uint8_t lun = 0;
+		int index = INVALID_PTN;
+		dprintf(INFO,
+			"compare_partitions equal\n");
+		for(i = 0; i < erase_pt_count; i++){
+			index = partition_get_index(erase_partition_names[i]);
+			if(index != INVALID_PTN){
+				ptn = partition_get_offset(index);
+				size = partition_get_size(index);
+				lun = partition_get_lun(index);
+				mmc_set_lun(lun);
+				mmc_erase_card(ptn, size);
+			}
+		}
+	} else {
+		ret = compare_backup_partitions(partition_names, pt_count);
+		dprintf(INFO, "compare_backup_partitions.ret = %d\n", ret);
+		if(ret == 0){
+			ret = reserve_backup_partitions(partition_names, pt_count, device_density);
+			dprintf(INFO, "reserve_backup_partitions.ret = %d\n", ret);
+		} else if(ret == UPGRADE_ERR_NEED_WRITEBACK){
+			ret = read_backup_partitions_content(partition_names, pt_count, device_density);
+			dprintf(INFO, "read_backup_partitions_content.ret = %d\n", ret);
+		}
+	}
+	return ret;
+}
+
+#endif//#ifdef ODMM_CONFIG_PARTITION_UPGRADE
+
 /*
  * Write the GPT to the MMC.
  */
@@ -699,7 +1236,17 @@ static unsigned int write_gpt(uint32_t size, uint8_t *gptImage, uint32_t block_s
 		  max_partition_count, partition_entry_size, block_size);
 
 	/* Erasing the eMMC card before writing */
+#ifdef ODMM_CONFIG_PARTITION_UPGRADE
+	retrieve_upgrade_gpt_partition_info(primary_gpt_header + block_size, max_partition_count, partition_entry_size, block_size);
+	ret = do_partitions_upgrade(device_density);
+	if(ret){
+		dprintf(CRITICAL, "backup_partitions, erase all card!\n");
+		ret = mmc_erase_card(0x00000000, device_density);
+	}
+#else
 	ret = mmc_erase_card(0x00000000, device_density);
+#endif
+
 	if (ret) {
 		dprintf(CRITICAL, "Failed to erase the eMMC card\n");
 		goto end;
@@ -759,6 +1306,9 @@ static unsigned int write_gpt(uint32_t size, uint8_t *gptImage, uint32_t block_s
 	partition_count = 0;
 	flashing_gpt = 0;
 	mmc_read_partition_table(0);
+#ifdef ODMM_CONFIG_PARTITION_UPGRADE
+	writeback_backup_partitions_content_ifneed();
+#endif
 	partition_dump();
 	dprintf(CRITICAL, "GPT: Partition Table written\n");
 	memset(primary_gpt_header, 0x00, size);

@@ -529,9 +529,11 @@ void display_image_on_screen(void)
 	int fetch_image_from_partition();
 
 	if (fetch_image_from_partition() < 0) {
+		//dprintf(CRITICAL,"[display_image_on_screen]+++++++++yxw test0415+++++11111\n");
 		display_default_image_on_screen();
 	} else {
 		/* data has been put into the right place */
+		//dprintf(CRITICAL,"[display_image_on_screen]+++++++++yxw test0415+++++22222\n");
 		fbcon_flush();
 	}
 #else

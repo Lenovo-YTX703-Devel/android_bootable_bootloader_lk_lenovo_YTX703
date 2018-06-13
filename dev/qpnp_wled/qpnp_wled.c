@@ -133,7 +133,8 @@ int qpnp_ibb_enable(bool state)
 		reg |= (state << QPNP_WLED_MODULE_EN_SHIFT);
 		pm8x41_wled_reg_write(QPNP_WLED_LAB_IBB_RDY_REG(gwled->lab_base), reg);
 	}
-
+	//dprintf(CRITICAL, "%s: yxw test+++++++++++++++8888888============\n", __func__);
+	mdelay(100);
 	if (gwled->disp_type_amoled && gwled->lab_ibb_swire_control)
 		rc = qpnp_wled_ibb_swire_rdy(gwled, gwled->ibb_base, state);
 	else

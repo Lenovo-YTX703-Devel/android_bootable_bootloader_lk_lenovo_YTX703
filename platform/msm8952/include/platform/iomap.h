@@ -63,12 +63,31 @@
 #define MSM_SDC1_BASE                      (PERIPH_SS_BASE + 0x00024000)
 #define MSM_SDC2_BASE                      (PERIPH_SS_BASE + 0x00064000)
 
+
+#define CLK_CTL_BASE                       0x1800000
+
+//yxw add
+/*I2C*/
+#define  BLSP_QUP_BASE(blsp_id, qup_id) (((blsp_id) == 1) ? (PERIPH_SS_BASE + 0xB5000 + 0x1000 * (qup_id)) \
+													: (PERIPH_SS_BASE + 0x2F4000 + 0x1000 * (qup_id)))
+													
+#define GCC_BLSP1_QUP2_APPS_CBCR    (CLK_CTL_BASE + 0x3010)
+#define GCC_BLSP1_QUP2_CFG_RCGR     (CLK_CTL_BASE + 0x3004)
+#define GCC_BLSP1_QUP2_CMD_RCGR     (CLK_CTL_BASE + 0x3000)
+//end
+
+/*BLSP2 I2C*/
+#define BLSP2_AHB_CBCR              (CLK_CTL_BASE + 0x0B008)
+#define BLSP2_QUP4_I2C_APPS_CBCR		 (CLK_CTL_BASE + 0x18020)
+#define BLSP2_QUP4_I2C_APPS_CMD_RCGR		 (CLK_CTL_BASE + 0x18000)
+#define BLSP2_QUP4_I2C_APPS_CFG_RCGR		 (CLK_CTL_BASE + 0x18004)
+
 /* UART */
 #define BLSP1_UART0_BASE                   (PERIPH_SS_BASE + 0x000AF000)
 #define BLSP1_UART1_BASE                   (PERIPH_SS_BASE + 0x000B0000)
 #define MSM_USB_BASE                       (PERIPH_SS_BASE + 0x000DB000)
 
-#define CLK_CTL_BASE                       0x1800000
+
 
 #define PMI_SLAVE_ID 3
 #define PMI_ADDR_BASE (PMI_SLAVE_ID << 16)

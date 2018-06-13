@@ -591,6 +591,7 @@ DEFINES += DISPLAY_TYPE_MDSS=1
 			$(LOCAL_DIR)/mipi_dsi.o \
 			$(LOCAL_DIR)/mipi_dsc.o \
 			$(LOCAL_DIR)/mipi_dsi_phy.o \
+			$(LOCAL_DIR)/i2c_qup.o \
 			$(LOCAL_DIR)/mipi_dsi_autopll.o
 endif
 

@@ -174,6 +174,19 @@ static unsigned download_size;
 
 static unsigned fastboot_state = STATE_OFFLINE;
 
+#ifdef ODMM_CONFIG_OEM_DUMP_MEMORY
+
+static char save_db_buf[64];
+void save_db_mem_buf(void)
+{
+	memcpy(save_db_buf, download_base, sizeof(save_db_buf));
+}
+void resume_db_mem_buf(void)
+{
+	memcpy(download_base, save_db_buf, sizeof(save_db_buf));
+}
+#endif
+
 static void req_complete(struct udc_request *req, unsigned actual, int status)
 {
 	txn_status = status;
@@ -403,6 +416,19 @@ void fastboot_ack(const char *code, const char *reason)
 
 }
 
+#ifdef ODMM_CONFIG_OEM_DUMP_MEMORY
+int fastboot_write_data(void *data, unsigned sz)
+{
+    unsigned write_size = usb_if.usb_write(data,sz);
+	fastboot_state = STATE_COMPLETE;
+    return write_size;
+}
+
+int usb_read_data(void *buf, unsigned len){
+	return usb_if.usb_read(buf, len);
+}
+#endif
+
 void fastboot_info(const char *reason)
 {
 	STACKBUF_DMA_ALIGN(response, MAX_RSP_SIZE);
@@ -563,6 +589,10 @@ int fastboot_init(void *base, unsigned size)
 
 	download_base = base;
 	download_max = size;
+
+#ifdef ODMM_CONFIG_OEM_DUMP_MEMORY
+		save_db_mem_buf();
+#endif
 
 	/* target specific initialization before going into fastboot. */
 	target_fastboot_init();

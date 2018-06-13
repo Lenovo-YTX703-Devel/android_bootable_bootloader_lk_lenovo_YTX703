@@ -428,6 +428,7 @@ struct msm_fb_panel_data {
 
 	/* function entry chain */
 	int (*power_func) (uint8_t enable, struct msm_panel_info *);
+	int (*odm_power_func) (uint8_t enable, struct msm_panel_info *);
 	uint32_t (*clk_func) (uint8_t enable, struct msm_panel_info *pinfo);
 	int (*bl_func) (uint8_t enable);
 	uint32_t (*pll_clk_func) (uint8_t enable, struct msm_panel_info *);

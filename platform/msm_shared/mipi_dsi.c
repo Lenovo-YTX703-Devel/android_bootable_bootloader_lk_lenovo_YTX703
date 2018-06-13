@@ -677,6 +677,11 @@ int mdss_dsi_config(struct msm_fb_panel_data *panel)
 		}
 	}
 
+	/* Turn on vsp and vsn */
+	dprintf(CRITICAL, "=============88888888888========\n");
+	if (panel->odm_power_func)
+		ret = panel->odm_power_func(1, &(panel->panel_info));
+
 	if (!mipi->cmds_post_tg) {
 		ret = mdss_dsi_panel_initialize(mipi, mipi->broadcast);
 		if (ret) {

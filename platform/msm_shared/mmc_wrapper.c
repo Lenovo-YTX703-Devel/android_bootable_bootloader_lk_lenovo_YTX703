@@ -291,9 +291,17 @@ static uint32_t mmc_zero_out(struct mmc_device* dev, uint32_t blk_addr, uint32_t
 	uint32_t block_size = mmc_get_device_blocksize();
 	uint32_t erase_size = (block_size * num_blks);
 	uint32_t scratch_size = target_get_max_flash_size();
+	uint32_t scratch_addr = (uint32_t)target_get_scratch_address();
 
 	dprintf(INFO, "erasing 0x%x:0x%x\n", blk_addr, num_blks);
 
+	out = (uint32_t *)(scratch_addr + scratch_size);
+
+	dprintf(ALWAYS, "scratch_addr = 0x%x\n", scratch_addr);
+	dprintf(ALWAYS, "scratch_size = 0x%x\n", scratch_size);
+	dprintf(ALWAYS, "out = %p\n", out);
+
+#if 0
 	if (erase_size <= scratch_size)
 	{
 		/* Use scratch address if the unaligned blocks */
@@ -304,6 +312,7 @@ static uint32_t mmc_zero_out(struct mmc_device* dev, uint32_t blk_addr, uint32_t
 		dprintf(CRITICAL, "Erase Fail: Erase size: %u is bigger than scratch region\n", scratch_size);
 		return 1;
 	}
+#endif
 
 	memset((void *)out, 0, erase_size);
 

@@ -98,4 +98,5 @@ void mdp_clock_disable(void);
 void gcc_dsi_clocks_enable(uint32_t flags,  bool use_dsi1_pll, uint8_t pclk0_m,
 		uint8_t pclk0_n, uint8_t pclk0_d);
 void gcc_dsi_clocks_disable(uint32_t flags);
+void clock_config_blsp_i2c(uint8_t blsp_id, uint8_t qup_id);
 #endif

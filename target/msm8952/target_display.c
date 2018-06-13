@@ -251,7 +251,107 @@ static uint32_t dsi_pll_enable_seq_8956(uint32_t pll_base)
 
 	return dsi_pll_lock_status_8956(pll_base);
 }
+//yxw add
+#include <i2c_qup.h>
+#include <blsp_qup.h>
 
+#include <debug.h>
+#include <smem.h>
+#include <err.h>
+#include <msm_panel.h>
+#include <mipi_dsi.h>
+#include <board.h>
+#include <mdp5.h>
+#include <scm.h>
+#include <platform/gpio.h>
+#include <platform/iomap.h>
+#include <target/display.h>
+#include <i2c_qup.h>
+#include <blsp_qup.h>
+#include <mipi_dsi_i2c.h>
+
+#include "include/panel.h"
+#include "include/display_resource.h"
+#include "gcdb_display.h"
+
+#define lp855x_I2C_ADDRESS		0x2c
+#define lp855x_BL_CMD		0x00
+#define lp855x_BRTHI		0x04
+#define lp855x_CONFIG		0x10
+#define lp855x_CURRENT		0x11
+#define lp855x_LEDEN		0x14
+
+int bl_num = 0;
+ 
+struct qup_i2c_dev *odm_dev;
+static int lp855x_i2c_init()
+{
+	/*
+	1 arg: BLSP ID can be BLSP_ID_1 or BLSP_ID_2
+	2 arg: QUP ID can be QUP_ID_0:QUP_ID_5
+	3 arg: I2C CLK. should be 100KHZ, or 400KHz
+	4 arg: Source clock, should be set @ 19.2MHz
+	*/
+	odm_dev = qup_blsp_i2c_init(BLSP_ID_1, QUP_ID_1,100000, 19200000);
+	if(!odm_dev){
+		printf("Failed to initialize\n");
+		ASSERT(0);
+	}
+	bl_num = 1;
+	return 0;
+}
+
+static int lp855x_i2c_write(uint8_t addr, uint8_t val)
+{
+	int ret = 0;
+	uint8_t data_buf[] = { addr, val };
+
+	/* Create a i2c_msg buffer, that is used to put the controller into write
+	   mode and then to write some data. */
+	struct i2c_msg msg_buf[] = { {lp855x_I2C_ADDRESS,
+				      I2C_M_WR, 2, data_buf}
+	};
+
+	ret = qup_i2c_xfer(odm_dev, msg_buf, 1);
+	if(ret < 0) {
+		dprintf(CRITICAL, "qup_i2c_xfer error %d\n", ret);
+		return ret;
+	}
+	return 0;
+}
+
+static int odm_lp855x_backlight_ctrl(struct backlight *bl, uint8_t enable)
+{
+	uint32_t ret = NO_ERROR;
+
+	ret = lp855x_i2c_write(lp855x_BRTHI,0x80);
+	if (ret) {
+			dprintf(CRITICAL, "lp855x: I2C Write failure\n");
+	}
+
+	ret = lp855x_i2c_write(lp855x_CONFIG,0x03);
+	if (ret) {
+			dprintf(CRITICAL, "lp855x: I2C Write failure\n");
+	}
+
+	ret = lp855x_i2c_write(lp855x_CURRENT,0x05);
+	if (ret) {
+			dprintf(CRITICAL, "lp855x: I2C Write failure\n");
+	}
+
+	ret = lp855x_i2c_write(lp855x_LEDEN,0xbf);
+	if (ret) {
+			dprintf(CRITICAL, "lp855x: I2C Write failure\n");
+	}
+
+	ret = lp855x_i2c_write(lp855x_BL_CMD,0x01);
+	if (ret) {
+			dprintf(CRITICAL, "lp855x: I2C Write failure\n");
+	}
+	
+	return ret;
+}
+//end
 static int msm8952_wled_backlight_ctrl(uint8_t enable)
 {
 	uint8_t slave_id = PMIC_WLED_SLAVE_ID;	/* pmi */
@@ -268,8 +368,13 @@ int target_backlight_ctrl(struct backlight *bl, uint8_t enable)
 
 	if (bl->bl_interface_type == BL_DCS)
 		return ret;
-
-	ret = msm8952_wled_backlight_ctrl(enable);
+	if(0)
+		ret = msm8952_wled_backlight_ctrl(enable);
+	else  {
+		dprintf(CRITICAL, "lp855x: ==============88888888888888++++++++++++++++++\n");
+		lp855x_i2c_init();
+		ret = odm_lp855x_backlight_ctrl(bl,enable);
+	}
 
 	return ret;
 }
@@ -417,6 +522,33 @@ int target_panel_reset(uint8_t enable, struct panel_reset_sequence *resetseq,
 	return ret;
 }
 
+int odm_target_panel_reset(uint8_t enable, struct panel_reset_sequence *resetseq,
+						struct msm_panel_info *pinfo)
+{
+	int ret = NO_ERROR;
+	uint32_t hw_id = board_hardware_id();
+	uint32_t hw_subtype = board_hardware_subtype();
+
+	if (platform_is_msm8956()) {
+		reset_gpio.pin_id = 25;
+		bkl_gpio.pin_id = 66;
+	} else if ((hw_id == HW_PLATFORM_QRD) &&
+		   (hw_subtype == HW_PLATFORM_SUBTYPE_POLARIS)) {
+		enable_gpio.pin_id = 19;
+	}
+
+	if(enable) {
+		gpio_tlmm_config(reset_gpio.pin_id, 0,
+				reset_gpio.pin_direction, reset_gpio.pin_pull,
+				reset_gpio.pin_strength, reset_gpio.pin_state);
+		/* reset */
+		gpio_set_dir(reset_gpio.pin_id, GPIO_STATE_LOW);
+		mdelay(20);
+	}
+
+	return ret;
+}
+
 static void wled_init(struct msm_panel_info *pinfo)
 {
 	struct qpnp_wled_config_data config = {0};
@@ -522,8 +654,35 @@ int target_ldo_ctrl(uint8_t enable, struct msm_panel_info *pinfo)
 		ldo_num |= REG_LDO2;
 
 	if (enable) {
-		regulator_enable(ldo_num);
+		//dprintf(CRITICAL, "yxw test+++++++++++++333333+++++++++++++++++\n");
+		//regulator_enable(ldo_num);
+		//mdelay(10);
+		//wled_init(pinfo);
+		//qpnp_ibb_enable(true); /*5V boost*/
+		//mdelay(50);
+	} else {
+		/*
+		 * LDO1, LDO2 and LDO6 are shared with other subsystems.
+		 * Do not disable them.
+		 */
+		regulator_disable(REG_LDO17);
+	}
+
+	return NO_ERROR;
+}
+int odm_target_ldo_ctrl(uint8_t enable, struct msm_panel_info *pinfo)
+{
+	uint32_t ldo_num = REG_LDO6 | REG_LDO17;
+
+	if (platform_is_msm8956())
+		ldo_num |= REG_LDO1;
+	else
+		ldo_num |= REG_LDO2;
+
+	if (enable) {
+		//regulator_enable(ldo_num);
 		mdelay(10);
+		//dprintf(CRITICAL, "yxw test+++++++++++++6666666+++++++++++++++++\n");
 		wled_init(pinfo);
 		qpnp_ibb_enable(true); /*5V boost*/
 		mdelay(50);
@@ -578,6 +737,18 @@ void target_display_init(const char *panel_name)
 	}
 }
 
+int lp855x_lk_shutdown(void)
+{
+	uint32_t ret = NO_ERROR;
+	dprintf(CRITICAL, "lp855x_lk_shutdown check bl_num = %d\n",bl_num);
+	if(bl_num){
+		ret = lp855x_i2c_write(lp855x_BL_CMD,0x00);
+		if (ret) {
+			dprintf(CRITICAL, "lp855x: I2C Write failure\n");
+		}
+	}
+	return ret;
+}
 void target_display_shutdown(void)
 {
 	gcdb_display_shutdown();

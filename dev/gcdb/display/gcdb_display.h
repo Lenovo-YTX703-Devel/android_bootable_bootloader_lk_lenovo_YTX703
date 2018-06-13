@@ -53,7 +53,10 @@ int target_backlight_ctrl(struct backlight *bl, uint8_t enable);
 int target_panel_clock(uint8_t enable, struct msm_panel_info *pinfo);
 int target_panel_reset(uint8_t enable, struct panel_reset_sequence *resetseq,
 						struct msm_panel_info *pinfo);
+int odm_target_panel_reset(uint8_t enable, struct panel_reset_sequence *resetseq,
+						struct msm_panel_info *pinfo);
 int target_ldo_ctrl(uint8_t enable, struct msm_panel_info *pinfo);
+int odm_target_ldo_ctrl(uint8_t enable, struct msm_panel_info *pinfo);
 int target_display_dsi2hdmi_config(struct msm_panel_info *pinfo);
 int target_dsi_phy_config(struct mdss_dsi_phy_ctrl *phy_db);
 

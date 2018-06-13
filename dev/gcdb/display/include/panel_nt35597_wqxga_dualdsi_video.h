@@ -39,7 +39,7 @@
 /*---------------------------------------------------------------------------*/
 static struct panel_config nt35597_wqxga_dualdsi_video_panel_data = {
 	"qcom,mdss_dsi_nt35597_wqxga_video", "dsi:0:", "qcom,mdss-dsi-panel",
-	10, 0, "DISPLAY_1", 0, 0, 60, 0, 0, 1, 0, 0, 0, 0, 0, 11, 0, 0,
+	10, 0, "DISPLAY_1", 0, 0, 60, 0, 0, 1, 1, 10, 0, 0, 0, 11, 0, 0,
 	"qcom,mdss_dsi_nt35597_wqxga_video"
 };
 
@@ -47,7 +47,8 @@ static struct panel_config nt35597_wqxga_dualdsi_video_panel_data = {
 /* Panel resolution                                                          */
 /*---------------------------------------------------------------------------*/
 static struct panel_resolution nt35597_wqxga_dualdsi_video_panel_res = {
-	1440, 2560, 100, 32, 16, 0, 8, 7, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	//1600, 2560, 104, 72, 4, 0, 16, 24, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	1600, 2560, 17, 30, 4, 0, 16, 24, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0
 };
 
 /*---------------------------------------------------------------------------*/
@@ -61,51 +62,57 @@ static struct color_info nt35597_wqxga_dualdsi_video_color = {
 /* Panel on/off command information                                          */
 /*---------------------------------------------------------------------------*/
 static char nt35597_wqxga_dualdsi_video_on_cmd0[] = {
-	0xff, 0x10, 0x15, 0x80
+	0x06, 0x0,  0x39, 0xc0,
+	0xf0, 0x55, 0xaa, 0x52, 
+	0x08, 0x00, 0xff, 0xff
 };
 
 static char nt35597_wqxga_dualdsi_video_on_cmd1[] = {
-	0xfb, 0x01, 0x15, 0x80
+	0xc0, 0x0d, 0x15, 0x80
 };
 
 static char nt35597_wqxga_dualdsi_video_on_cmd2[] = {
-	0xba, 0x03, 0x15, 0x80
+	0x05, 0x0,  0x39, 0xc0,
+	0xb8, 0x03, 0x06, 0x00,
+	0x00, 0xff, 0xff, 0xff
 };
 
 static char nt35597_wqxga_dualdsi_video_on_cmd3[] = {
-	0xe5, 0x01, 0x15, 0x80
+	0x05, 0x0,  0x39, 0xc0,
+	0xff, 0xaa, 0x55, 0xa5,
+	0x80, 0xff, 0xff, 0xff
 };
 
 static char nt35597_wqxga_dualdsi_video_on_cmd4[] = {
-	0x35, 0x00, 0x15, 0x80
+	0x6f, 0x0f, 0x15, 0x80
 };
 
 static char nt35597_wqxga_dualdsi_video_on_cmd5[] = {
-	0xbb, 0x03, 0x15, 0x80
+	0xf7, 0x01, 0x15, 0x80
 };
 
 static char nt35597_wqxga_dualdsi_video_on_cmd6[] = {
-	0xb0, 0x03, 0x15, 0x80
+	0x05, 0x0,  0x39, 0xc0,
+	0xff, 0xaa, 0x55, 0xa5,
+	0x00, 0xff, 0xff, 0xff
 };
 
 static char nt35597_wqxga_dualdsi_video_on_cmd7[] = {
-	0x06, 0x0, 0x39, 0xc0,
-	0x3b, 0x03, 0x08, 0x08,
-	0x64, 0x9a, 0xff, 0xff
+	0x62, 0x01, 0x15, 0x80
 };
 
 static char nt35597_wqxga_dualdsi_video_on_cmd8[] = {
-	0xff, 0xe0, 0x15, 0x80
+	0x55, 0x02, 0x15, 0x80
 };
 
 static char nt35597_wqxga_dualdsi_video_on_cmd9[] = {
-	0xfb, 0x01, 0x15, 0x80
+	0x53, 0x24, 0x15, 0x80
 };
 
 static char nt35597_wqxga_dualdsi_video_on_cmd10[] = {
-	0x6b, 0x3d, 0x15, 0x80
+	0x51, 0x80, 0x15, 0x80
 };
-
+/*
 static char nt35597_wqxga_dualdsi_video_on_cmd11[] = {
 	0x6c, 0x3d, 0x15, 0x80
 };
@@ -141,7 +148,7 @@ static char nt35597_wqxga_dualdsi_video_on_cmd18[] = {
 static char nt35597_wqxga_dualdsi_video_on_cmd19[] = {
 	0xff, 0x10, 0x15, 0x80
 };
-
+*/
 static char nt35597_wqxga_dualdsi_video_on_cmd20[] = {
 	0x11, 0x00, 0x05, 0x80
 };
@@ -151,17 +158,18 @@ static char nt35597_wqxga_dualdsi_video_on_cmd21[] = {
 };
 
 static struct mipi_dsi_cmd nt35597_wqxga_dualdsi_video_on_command[] = {
-	{0x4, nt35597_wqxga_dualdsi_video_on_cmd0, 0x10},
-	{0x4, nt35597_wqxga_dualdsi_video_on_cmd1, 0x10},
-	{0x4, nt35597_wqxga_dualdsi_video_on_cmd2, 0x10},
-	{0x4, nt35597_wqxga_dualdsi_video_on_cmd3, 0x10},
-	{0x4, nt35597_wqxga_dualdsi_video_on_cmd4, 0x10},
-	{0x4, nt35597_wqxga_dualdsi_video_on_cmd5, 0x10},
-	{0x4, nt35597_wqxga_dualdsi_video_on_cmd6, 0x10},
-	{0xc, nt35597_wqxga_dualdsi_video_on_cmd7, 0x10},
-	{0x4, nt35597_wqxga_dualdsi_video_on_cmd8, 0x10},
-	{0x4, nt35597_wqxga_dualdsi_video_on_cmd9, 0x10},
-	{0x4, nt35597_wqxga_dualdsi_video_on_cmd10, 0x10},
+	{0xc, nt35597_wqxga_dualdsi_video_on_cmd0, 0x01},
+	{0x4, nt35597_wqxga_dualdsi_video_on_cmd1, 0x01},
+	{0xc, nt35597_wqxga_dualdsi_video_on_cmd2, 0x01},
+	{0xc, nt35597_wqxga_dualdsi_video_on_cmd3, 0x01},
+	{0x4, nt35597_wqxga_dualdsi_video_on_cmd4, 0x01},
+	{0x4, nt35597_wqxga_dualdsi_video_on_cmd5, 0x01},
+	{0xc, nt35597_wqxga_dualdsi_video_on_cmd6, 0x01},
+	{0x4, nt35597_wqxga_dualdsi_video_on_cmd7, 0x01},
+	{0x4, nt35597_wqxga_dualdsi_video_on_cmd8, 0x01},
+	{0x4, nt35597_wqxga_dualdsi_video_on_cmd9, 0x01},
+	{0x4, nt35597_wqxga_dualdsi_video_on_cmd10, 0x01},
+	/*
 	{0x4, nt35597_wqxga_dualdsi_video_on_cmd11, 0x10},
 	{0x4, nt35597_wqxga_dualdsi_video_on_cmd12, 0x10},
 	{0x4, nt35597_wqxga_dualdsi_video_on_cmd13, 0x10},
@@ -171,11 +179,12 @@ static struct mipi_dsi_cmd nt35597_wqxga_dualdsi_video_on_command[] = {
 	{0x4, nt35597_wqxga_dualdsi_video_on_cmd17, 0x10},
 	{0x4, nt35597_wqxga_dualdsi_video_on_cmd18, 0x10},
 	{0x4, nt35597_wqxga_dualdsi_video_on_cmd19, 0x10},
+	*/
 	{0x4, nt35597_wqxga_dualdsi_video_on_cmd20, 0x78},
-	{0x4, nt35597_wqxga_dualdsi_video_on_cmd21, 0x78},
+	{0x4, nt35597_wqxga_dualdsi_video_on_cmd21, 0x14},
 };
 
-#define NT35597_WQXGA_DUALDSI_VIDEO_ON_COMMAND 22
+#define NT35597_WQXGA_DUALDSI_VIDEO_ON_COMMAND 13
 
 
 static char nt35597_wqxga_dualdsi_videooff_cmd0[] = {
@@ -222,7 +231,10 @@ static struct lane_configuration nt35597_wqxga_dualdsi_video_lane_config = {
 /* Panel timing                                                              */
 /*---------------------------------------------------------------------------*/
 static const uint32_t nt35597_wqxga_dualdsi_video_timings[] = {
-	0xd5, 0x32, 0x22, 0x00, 0x60, 0x64, 0x26, 0x36, 0x29, 0x03, 0x04, 0x00
+	//0xd5, 0x32, 0x22, 0x00, 0x60, 0x64, 0x26, 0x36, 0x29, 0x03, 0x04, 0x00
+	//0xda, 0x68, 0x48, 0x01, 0xae, 0xb0, 0x50, 0x6c, 0x57, 0x03, 0x04, 0x00
+	//0xf3, 0x3a, 0x26, 0x00, 0x6a, 0x6e, 0x2c, 0x3e, 0x2f, 0x03, 0x04, 0x00
+	0xD5, 0x32, 0x22, 0x00, 0x60, 0x64, 0x26, 0x34, 0x29, 0x03, 0x04, 0x00
 };
 
 static const uint32_t nt35597_wqxga_dualdsi_thulium_video_timings[] = {

@@ -79,6 +79,15 @@ static uint32_t mdss_dsi_panel_reset(uint8_t enable)
 	return ret;
 }
 
+static uint32_t odm_mdss_dsi_panel_reset(uint8_t enable)
+{
+	uint32_t ret = NO_ERROR;
+	if (panelstruct.panelresetseq)
+		ret = odm_target_panel_reset(enable, panelstruct.panelresetseq,
+							&panel.panel_info);
+	return ret;
+}
+
 static uint32_t mdss_dsi_panel_clock(uint8_t enable,
 				struct msm_panel_info *pinfo)
 {
@@ -92,13 +101,32 @@ static uint32_t mdss_dsi_panel_clock(uint8_t enable,
 
 	return ret;
 }
-
+struct msm_panel_info *odm_pinfo;
 static int mdss_dsi_panel_power(uint8_t enable,
 				struct msm_panel_info *pinfo)
 {
 	int ret = NO_ERROR;
 
+	/* Panel Reset */
+	if (!panelstruct.paneldata->panel_lp11_init) {
+		ret = odm_mdss_dsi_panel_reset(enable);
+		if (ret) {
+			dprintf(CRITICAL, "panel reset failed\n");
+			return ret;
+		}
+	}
+
 	if (enable) {
+		//yxw add
+		if (panelstruct.paneldata->panel_lp11_init) {
+			ret = odm_mdss_dsi_panel_reset(1);
+			if (ret) {
+				dprintf(CRITICAL, "panel reset failed\n");
+				return ret;
+			}
+			odm_pinfo = pinfo;
+		}
+		//end
 		ret = target_ldo_ctrl(enable, pinfo);
 		if (ret) {
 			dprintf(CRITICAL, "LDO control enable failed\n");
@@ -133,10 +161,37 @@ static int mdss_dsi_panel_power(uint8_t enable,
 	return ret;
 }
 
-static int mdss_dsi_panel_pre_init(void)
+ int odm_mdss_dsi_panel_power(uint8_t enable,
+				struct msm_panel_info *pinfo)
 {
 	int ret = NO_ERROR;
 
+	if (enable) {
+		
+		ret = odm_target_ldo_ctrl(enable, pinfo);
+		if (ret) {
+			dprintf(CRITICAL, "LDO control enable failed\n");
+			return ret;
+		}
+		
+		dprintf(SPEW, "Panel vsp and vsn power on done\n");
+	} else {
+
+		ret = odm_target_ldo_ctrl(enable, pinfo);
+		if (ret) {
+			dprintf(CRITICAL, "ldo control disable failed\n");
+			return ret;
+		}
+		dprintf(SPEW, "vsp and vsn power off done\n");
+	}
+
+	return ret;
+}
+
+static int mdss_dsi_panel_pre_init(void)
+{
+	int ret = NO_ERROR;
+	mdelay(10);
 	if (panelstruct.paneldata->panel_lp11_init) {
 		ret = mdss_dsi_panel_reset(1);
 		if (ret) {
@@ -424,10 +479,12 @@ static void mdss_dsi_check_swap_status(void)
 
 	/* Swap the panel destination and use appropriate PLL */
 	if (!strcmp(panelstruct.paneldata->panel_destination, "DISPLAY_1")) {
+		//dprintf(CRITICAL, "mdss_dsi_check_swap_status  yxw test DISPLAY_2++++++\n");
 		panel_dest = "DISPLAY_2";
 		dsi_controller = "dsi:1:";
 		panelstruct.paneldata->panel_operating_mode |= USE_DSI1_PLL_FLAG;
 	} else {
+		//dprintf(CRITICAL, "mdss_dsi_check_swap_status  yxw test DISPLAY_1++++++\n");
 		panel_dest = "DISPLAY_1";
 		dsi_controller = "dsi:0:";
 		panelstruct.paneldata->panel_operating_mode &= ~USE_DSI1_PLL_FLAG;
@@ -447,12 +504,16 @@ static void mdss_dsi_set_pll_src(void)
 		oem_data->dsi_pll_src = DSI_PLL1;
 
 	if (is_dsi_config_dual()) {
+		//dprintf(CRITICAL, "yxw test++++Dual DSI config detected!"
+		//"Use default PLL\n");
 		if (oem_data->dsi_pll_src != DSI_PLL_DEFAULT) {
-			dprintf(CRITICAL, "Dual DSI config detected!"
+			printf(CRITICAL, "Dual DSI config detected!"
 				"Use default PLL\n");
 			oem_data->dsi_pll_src = DSI_PLL_DEFAULT;
 		}
 	} else if (is_dsi_config_split()) {
+		//dprintf(CRITICAL, "yxw test++++Split DSI on 28nm/20nm!"
+		//			"Use DSI PLL0\n");
 		if((dsi_video_mode_phy_db.pll_type != DSI_PLL_TYPE_THULIUM)
 			&& (oem_data->dsi_pll_src == DSI_PLL1)) {
 			dprintf(CRITICAL, "Split DSI on 28nm/20nm!"
@@ -500,6 +561,7 @@ int gcdb_display_init(const char *panel_name, uint32_t rev, void *base)
 		panel.pll_clk_func = mdss_dsi_panel_clock;
 		panel.dfps_func = mdss_dsi_mipi_dfps_config;
 		panel.power_func = mdss_dsi_panel_power;
+		panel.odm_power_func = odm_mdss_dsi_panel_power;
 		panel.pre_init_func = mdss_dsi_panel_pre_init;
 		panel.bl_func = mdss_dsi_bl_enable;
 		panel.dsi2HDMI_config = mdss_dsi2HDMI_config;

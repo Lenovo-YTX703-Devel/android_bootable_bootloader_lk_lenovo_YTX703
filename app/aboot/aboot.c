@@ -87,6 +87,17 @@
 #include "secapp_loader.h"
 #include <menu_keys_detect.h>
 #include <display_menu.h>
+#include <platform/gpio.h>
+#include <smem.h>
+
+//fgy add for board_id
+#define BRD_SKU1 1
+#define BRD_SKU2 2
+#define BRD_WIFI 3
+
+//yhj add for lcd_id
+#define LCD_1RD 1
+#define LCD_2RD 2
 
 extern  bool target_use_signed_kernel(void);
 extern void platform_uninit(void);
@@ -144,6 +155,24 @@ struct fastboot_cmd_desc {
 #define IS_ARM64(ptr) (ptr->magic_64 == KERNEL64_HDR_MAGIC) ? true : false
 
 #define ADD_OF(a, b) (UINT_MAX - b > a) ? (a + b) : UINT_MAX
+
+
+#if USER_BUILD_VARIANT
+/*if build for retail verison without serial log, just set the serial_debug_cmdline = 0;
+   if you need more log from serial, you can set loglevel=8 and then rebuild the aboot */
+//static const char *serial_debug_cmdline = " console=ttyHSL0,115200,n8 androidboot.console=ttyHSL0 earlyprintk loglevel=4";
+static const char *serial_debug_cmdline = NULL;
+#else
+/*this is for non-user version */
+static const char *serial_debug_cmdline = " console=ttyHSL0,115200,n8 androidboot.console=ttyHSL0 earlyprintk loglevel=8";
+//static const char *serial_debug_cmdline = NULL;
+#endif
+
+static char mem_info_str[48];
+static char com_board_ver_str[24];
+static char is_secure_fuse_str[24];
+static char com_board_id_str[24];//fgy add for board_id
+static char com_lcd_id_str[24];//yhj add for lcd_id
 
 #if USE_BOOTDEV_CMDLINE
 static const char *emmc_cmdline = " androidboot.bootdevice=";
@@ -272,6 +301,18 @@ extern int emmc_recovery_init(void);
 extern int fastboot_trigger(void);
 #endif
 
+#ifdef ODMM_CONFIG_OEM_FUNCTION
+static void oem_function_init(void);
+static void cmd_oem_func1(const char *arg, void *data, unsigned sz);
+static void cmd_oem_func2(const char *arg, void *data, unsigned sz);
+#endif
+
+#ifdef ODMM_CONFIG_OEM_DUMP_MEMORY
+static void cmd_oem_change_dump_memhole_flag(const char *arg, void *data, unsigned sz);
+extern void resume_db_mem_buf(void);
+static int memhole_check_flag = 1;
+#endif
+
 static void update_ker_tags_rdisk_addr(struct boot_img_hdr *hdr, bool is_arm64)
 {
 	/* overwrite the destination of specified for the project */
@@ -333,6 +374,15 @@ unsigned char *update_cmdline(const char * cmdline)
 #endif
 	}
 
+	if (serial_debug_cmdline) {
+		cmdline_len += strlen(serial_debug_cmdline);
+	}
+
+	cmdline_len += strlen(com_board_ver_str);
+	cmdline_len += strlen(is_secure_fuse_str);
+	cmdline_len += strlen(mem_info_str);
+	cmdline_len += strlen(com_board_id_str);//fgy add for board_id
+	cmdline_len += strlen(com_lcd_id_str);//yhj add for lcd_id
 	cmdline_len += strlen(usb_sn_cmdline);
 	cmdline_len += strlen(sn_buf);
 
@@ -359,6 +409,7 @@ unsigned char *update_cmdline(const char * cmdline)
 		cmdline_len += strlen(alarmboot_cmdline);
 	} else if ((target_build_variant_user() || device.charger_screen_enabled)
 			&& target_pause_for_battery_charge()) {
+		dprintf(ALWAYS, "mzy >>>> device.charger_screen_enabled is true\n");
 		pause_at_bootup = 1;
 		cmdline_len += strlen(battchg_pause);
 	}
@@ -459,6 +510,49 @@ unsigned char *update_cmdline(const char * cmdline)
 #endif
 		}
 
+		if (serial_debug_cmdline) {
+			src = serial_debug_cmdline;
+			if (have_cmdline) --dst;
+			have_cmdline = 1;
+			while ((*dst++ = *src++));
+		}
+
+		if (strlen(com_board_ver_str)) {
+			src = com_board_ver_str;
+			if (have_cmdline) --dst;
+			have_cmdline = 1;
+			while ((*dst++ = *src++));
+		}
+
+		if (strlen(is_secure_fuse_str)) {
+			src = is_secure_fuse_str;
+			if (have_cmdline) --dst;
+			have_cmdline = 1;
+			while ((*dst++ = *src++));
+		}
+
+		if (strlen(mem_info_str)) {
+			src = mem_info_str;
+			if (have_cmdline) --dst;
+			have_cmdline = 1;
+			while ((*dst++ = *src++));
+		}
+		
+		//fgy add for board_id
+		if (strlen(com_board_id_str)) {
+			src = com_board_id_str;
+			if (have_cmdline) --dst;
+			have_cmdline = 1;
+			while ((*dst++ = *src++));
+		}
+
+		//yhj add for lcd_id
+		if (strlen(com_lcd_id_str)) {
+			src = com_lcd_id_str;
+			if (have_cmdline) --dst;
+			have_cmdline = 1;
+			while ((*dst++ = *src++));
+		}
 #if VERIFIED_BOOT
 #if !VBOOT_MOTA
 		src = verified_state;
@@ -893,8 +987,8 @@ static void verify_signed_bootimg(uint32_t bootimg_addr, uint32_t bootimg_size)
 			wait_for_users_action();
 #else
 			dprintf(CRITICAL,
-					"Your device has failed verification and may not work properly.\nWait for 5 seconds before proceeding\n");
-			mdelay(5000);
+					"Your device has failed verification and may not work properly.\n");
+//			mdelay(5000);
 #endif
 
 			break;
@@ -904,8 +998,8 @@ static void verify_signed_bootimg(uint32_t bootimg_addr, uint32_t bootimg_size)
 			wait_for_users_action();
 #else
 			dprintf(CRITICAL,
-					"Your device has loaded a different operating system.\nWait for 5 seconds before proceeding\n");
-			mdelay(5000);
+					"Your device has loaded a different operating system.\n");
+//			mdelay(5000);
 #endif
 			break;
 		default:
@@ -1191,8 +1285,8 @@ int boot_linux_from_mmc(void)
 		wait_for_users_action();
 #else
 		dprintf(CRITICAL,
-			"Your device has been unlocked and can't be trusted.\nWait for 5 seconds before proceeding\n");
-		mdelay(5000);
+			"Your device has been unlocked and can't be trusted.\n");
+//		mdelay(5000);
 #endif
 	}
 #endif
@@ -1945,6 +2039,7 @@ void read_device_info(device_info *dev)
 #endif
 			write_device_info(info);
 		}
+		info->charger_screen_enabled = 1;		//mzy add 20160413
 		memcpy(dev, info, sizeof(device_info));
 		free(info);
 	}
@@ -2401,6 +2496,23 @@ void cmd_erase_mmc(const char *arg, void *data, unsigned sz)
 			fastboot_fail("unlock device to erase keystore");
 			return;
 		}
+	}
+#endif
+
+#if !USER_BUILD_VARIANT
+    if (strcmp(arg, "all") == 0) {
+		uint64_t device_density;
+		device_density = mmc_get_device_capacity();
+
+		dprintf(CRITICAL, "erase all.\n");
+		dprintf(CRITICAL, "device_density = 0x%llx\n", device_density);
+
+		if (mmc_erase_card(0x0, device_density)) {
+			fastboot_fail("failed to erase all\n");
+			return;
+		}
+		fastboot_okay("");
+		return;
 	}
 #endif
 
@@ -3283,6 +3395,283 @@ void cmd_preflash(const char *arg, void *data, unsigned sz)
 	fastboot_okay("");
 }
 
+void cmd_oem_log(const char *arg, void *data, unsigned sz)
+{
+#if WITH_DEBUG_LOG_BUF
+	unsigned i = 0;
+	unsigned index = 0;
+	char c = 0;
+	char response[MAX_RSP_SIZE - 4 - 1];
+	memset(response, 0, sizeof(response));
+	while(log_getc(&c, i) == 0){
+		i++;
+		if(index < sizeof(response) && c != '\0' && c != '\n'){
+			response[index++] = c;
+		} else {
+			if(c != '\0' && c != '\n'){
+				i--;
+			}
+			index = 0;
+			fastboot_info(response);
+			memset(response, 0, sizeof(response));
+		}
+	}
+#endif
+	fastboot_okay("");
+}
+
+
+#ifdef ODMM_CONFIG_ENABLE_FLASH_IMAGE
+void cmd_oem_enable_flash_image(const char *arg, void *data, unsigned sz)
+{
+	is_allow_unlock = 1;
+	device.is_unlocked = 1;
+#if !VBOOT_MOTA
+    device.is_unlock_critical = 1;
+#endif
+	fastboot_okay("");
+	return;
+}
+#endif
+
+
+
+#ifdef ODMM_CONFIG_OEM_FUNCTION
+static void oem_function_init(void)
+{
+	return;
+}
+static void cmd_oem_func1(const char *arg, void *data, unsigned sz)
+{
+	fastboot_okay("");
+	return;
+}
+static void cmd_oem_func2(const char *arg, void *data, unsigned sz)
+{
+	fastboot_okay("");
+	return;
+}
+
+#endif
+
+#ifdef ODMM_CONFIG_OEM_DUMP_MEMORY
+static void cmd_oem_change_dump_memhole_flag(const char *arg, void *data, unsigned sz)
+{
+
+	memhole_check_flag = !memhole_check_flag;
+
+	dprintf(CRITICAL, "memhole_check_flag = %d\n", memhole_check_flag);
+
+	fastboot_okay("");
+	return;
+}
+extern int fastboot_write_data(void *data, unsigned sz);
+extern int usb_read_data(void *buf, unsigned len);
+
+
+#define MAX_SIZE_TRANS_PER_TIME	(16 * 1024)
+
+#define RAW_MAGIC_NUM "raw"
+
+struct fastboot_header{
+    char magic[8];
+    unsigned long long address;
+    unsigned long long zip_size;
+    unsigned long long raw_size;
+};
+
+void cmd_dump(const char *arg, void *v_data, unsigned sz)
+{
+	unsigned long long ptn = 0;
+	unsigned long long size;
+	unsigned long long read_size;
+	unsigned long long write_size;
+
+	unsigned long long memhole_start = 0x85e00000;
+	unsigned long long memhole_end   = 0x86700000;
+
+    char buffer[30];
+	int cmd_len;
+
+	int index = -1;
+
+	struct fastboot_header fh;
+
+	if(!strcmp(arg, "memory")){
+		if (sz != sizeof(struct fastboot_header)) {
+			fastboot_fail("dump raw data size is not valid\n");
+			return;
+		}
+        memcpy(&fh,v_data,sizeof(fh));
+        if(strcmp(fh.magic,RAW_MAGIC_NUM)){
+            fastboot_fail("dump raw data head message error\n");
+            return;
+        }
+
+		ptn = fh.address;
+		size = fh.raw_size;
+		if (ptn % 512 != 0) {
+			fastboot_fail("dump raw data start addr error\n");
+	        return;
+		}
+
+		dprintf(CRITICAL, "dump v_data = 0x%x\n", (unsigned int)v_data);
+		dprintf(CRITICAL, "cmd_dump ptn = 0x%llx\n", ptn);
+		dprintf(CRITICAL, "cmd_dump size = 0x%llx\n", size);
+
+		if (memhole_check_flag) {
+
+			while (1) {
+				if (ptn >= memhole_start && ptn < memhole_end)
+					goto memhole_check_fail;
+				if ((ptn + size) > memhole_start && (ptn + size) <= memhole_end)
+					goto memhole_check_fail;
+				if (memhole_start >= ptn && memhole_start < (ptn + size))
+					goto memhole_check_fail;
+				if (memhole_end > ptn && memhole_end <= (ptn + size))
+					goto memhole_check_fail;
+
+				dprintf(CRITICAL, "memhole_check pass\n");
+				break;
+memhole_check_fail:
+				dprintf(CRITICAL, "the dump memory area[%llx, %llx) is conflict with memhole[%llx, %llx)\n",
+					ptn, ptn + size, memhole_start, memhole_end);
+				fastboot_fail("the dump memory area is conflict with memhole.\n");
+				return;
+			}
+		}
+
+		resume_db_mem_buf();
+		sprintf(buffer,"DATA%08llx",size);
+		fastboot_write_data(buffer,12);
+
+		while (size > 0) {
+
+            unsigned temp1;
+
+			read_size = MAX_SIZE_TRANS_PER_TIME < size ? MAX_SIZE_TRANS_PER_TIME : size;
+            temp1 = ptn;
+			write_size = fastboot_write_data((void *)temp1, read_size);
+
+			if (write_size != read_size) {
+				dprintf(CRITICAL, "fastboot_write_data.write_size(%lld) != read_size(%lld)\n",
+									write_size, read_size);
+				fastboot_fail("fastboot_write_data faiure.\n");
+				return;
+			}
+
+			size -= read_size;
+			ptn += read_size;
+
+			if (size == 0)
+				break;
+
+			cmd_len = usb_read_data(buffer, 8);
+
+			if (cmd_len <0 || cmd_len > 8) {
+				dprintf(CRITICAL, "error:	usb_read_data.cmd_len = %d\n", cmd_len);
+				fastboot_fail("usb_read_data cmd continue faiure.\n");
+				return;
+			}
+
+			if (memcmp(buffer, "continue", 8) != 0) {
+				dprintf(CRITICAL, "error:	usb_read_data.cmd = %s\n", buffer);
+				fastboot_fail("error,usb_read cmd is not continue\n");
+				return;
+			}
+
+		}
+
+		return;
+	}
+
+	if(!strcmp(arg, "raw_part")){
+		if (sz != sizeof(struct fastboot_header)) {
+			fastboot_fail("dump raw data size is not valid\n");
+			return;
+		}
+		memcpy(&fh,v_data,sizeof(fh));
+		if(strcmp(fh.magic,RAW_MAGIC_NUM)){
+	        fastboot_fail("dump raw data head message error\n");
+	        return;
+        }
+
+		ptn = fh.address;
+		size = fh.raw_size;
+		if (ptn % 512 != 0) {
+			fastboot_fail("dump raw data start addr error\n");
+	        return;
+		}
+	} else {
+		index = partition_get_index(arg);
+		if(index == -1) {
+			fastboot_fail("partition table doesn't exist");
+			return;
+		}
+		ptn = partition_get_offset(index);
+		size = partition_get_size(index);
+	}
+
+	dprintf(CRITICAL, "dump v_data = %p\n", v_data);
+	dprintf(CRITICAL, "cmd_dump ptn = 0x%llx\n", ptn);
+	dprintf(CRITICAL, "cmd_dump size = 0x%llx\n", size);
+
+	resume_db_mem_buf();
+	sprintf(buffer,"DATA%08llx",size);
+	fastboot_write_data(buffer,12);
+
+	while (size > 0) {
+
+		read_size = MAX_SIZE_TRANS_PER_TIME < size ? MAX_SIZE_TRANS_PER_TIME : size;
+
+		int ret = mmc_read(ptn, (unsigned int *) v_data, read_size);
+		if (ret) {
+			dprintf(CRITICAL, "ERROR: mmc_read.ret = %d\n", ret);
+			fastboot_fail("\nRead EMMC error.");
+			return;
+		}
+
+		size -=  read_size;
+		ptn += read_size;
+
+		write_size = fastboot_write_data(v_data, read_size);
+
+		if (write_size != read_size) {
+			dprintf(CRITICAL, "fastboot_write_data.write_size(%lld) != read_size(%lld)\n",
+					write_size, read_size);
+			fastboot_fail("fastboot_write_data faiure.\n");
+			return;
+		}
+
+		if (size == 0)
+			break;
+
+		cmd_len = usb_read_data(buffer, 8);
+
+		if (cmd_len <0 || cmd_len > 8) {
+			dprintf(CRITICAL, "error:	usb_read.cmd_len = %d\n", cmd_len);
+			fastboot_fail("usb_read cmd continue faiure.\n");
+			return;
+		}
+
+		if (memcmp(buffer, "continue", 8) != 0) {
+			dprintf(CRITICAL, "error:	usb_read.cmd = %s\n", buffer);
+			fastboot_fail("error,usb_read cmd is not continue\n");
+			return;
+		}
+	}
+}
+
+#endif
+
+#ifdef ODMM_CONFIG_OEM_SHUTDOWN
+void cmd_oem_shutdown(const char *arg, void *data, unsigned sz)
+{
+	fastboot_okay("");
+	shutdown_device();
+}
+#endif
+
 static uint8_t logo_header[LOGO_IMG_HEADER_SIZE];
 
 int splash_screen_check_header(logo_img_header *header)
@@ -3577,6 +3966,21 @@ void aboot_fastboot_register_commands(void)
 						{"oem disable-charger-screen", cmd_oem_disable_charger_screen},
 						{"oem off-mode-charge", cmd_oem_off_mode_charger},
 						{"oem select-display-panel", cmd_oem_select_display_panel},
+						{"oem log", cmd_oem_log},
+						#ifdef ODMM_CONFIG_OEM_FUNCTION
+						{"oem fun1", cmd_oem_func1},
+						{"oem fun2", cmd_oem_func2},
+						#endif
+						#ifdef ODMM_CONFIG_OEM_DUMP_MEMORY
+						{"dump:", cmd_dump},
+						{"oem changedumpmemholeflag", cmd_oem_change_dump_memhole_flag},
+						#endif
+						#ifdef ODMM_CONFIG_ENABLE_FLASH_IMAGE
+						{"oem enable_flash_image", cmd_oem_enable_flash_image},
+						#endif
+						#ifdef ODMM_CONFIG_OEM_SHUTDOWN
+						{"oem shutdown", cmd_oem_shutdown},
+						#endif
 #endif
 						};
 
@@ -3627,11 +4031,172 @@ void aboot_fastboot_register_commands(void)
 #endif
 }
 
+static uint32_t get_com_borad_ver(void)
+{
+	uint32_t gpio_value_038, gpio_value_001, gpio_value_109;
+	uint32_t ver = 0;
+
+	gpio_tlmm_config(38, 0, GPIO_INPUT, GPIO_PULL_UP, GPIO_2MA, GPIO_ENABLE);
+	gpio_tlmm_config(109, 0, GPIO_INPUT, GPIO_PULL_UP, GPIO_2MA, GPIO_ENABLE);
+	gpio_tlmm_config(1, 0, GPIO_INPUT, GPIO_PULL_UP, GPIO_2MA, GPIO_ENABLE);
+	udelay(10000);
+
+	gpio_value_038 =  gpio_status(38);
+	gpio_value_001 =  gpio_status(1);
+	gpio_value_109 =  gpio_status(109);
+	dprintf(ALWAYS, "get_com_borad_ver.gpio_038_value = 0x%x\n", gpio_value_038);
+	dprintf(ALWAYS, "get_com_borad_ver.gpio_001_value = 0x%x\n", gpio_value_001);
+	dprintf(ALWAYS, "get_com_borad_ver.gpio_109_value = 0x%x\n", gpio_value_109);
+
+	if (gpio_value_001 == 1 && gpio_value_109 == 0 && gpio_value_038 == 0) {
+		ver = 3;
+	} else if (gpio_value_001 == 0 && gpio_value_109 == 0 && gpio_value_038 == 0) {
+		ver = 2;
+	} else if (gpio_value_038 == 0) {
+		ver = 1;
+	}
+
+	gpio_tlmm_config(38, 0, GPIO_INPUT, GPIO_NO_PULL, GPIO_2MA, GPIO_ENABLE);
+	gpio_tlmm_config(1, 0, GPIO_INPUT, GPIO_NO_PULL, GPIO_2MA, GPIO_ENABLE);
+	gpio_tlmm_config(109, 0, GPIO_INPUT, GPIO_NO_PULL, GPIO_2MA, GPIO_ENABLE);
+
+	return ver;
+}
+
+//fgy add for board_id
+static uint32_t  get_com_board_id(void)
+{
+	uint32_t gpio_value;
+	uint32_t gpio = 125;
+ 	uint32_t platform_id;
+	uint32_t board_id = 0;
+	
+	gpio_tlmm_config(gpio, 0, GPIO_INPUT, GPIO_NO_PULL, GPIO_2MA, GPIO_ENABLE);
+	udelay(10000);
+
+       platform_id = board_platform_id();
+	if (platform_id == MSM8976 ){
+		dprintf(ALWAYS, "get_com_board_id.platform_id is MSM8976\n" );
+		
+		gpio_value = gpio_status(gpio);
+		dprintf(ALWAYS, "get_com_board_id.gpio_status is  %d\n",gpio_value);
+		if(gpio_value == 0){
+		 	board_id = BRD_SKU1;
+		}else if(gpio_value == 1){
+		 	board_id = BRD_SKU2;
+		}
+	}else if(platform_id == APQ8076){
+		dprintf(ALWAYS, "get_com_board_id.platform_id is APQ8076\n" );
+		board_id = BRD_WIFI;	
+	}
+	return board_id;
+	
+}
+
+//yhj add for lcd_id
+static uint32_t  get_com_lcd_id(void)
+{
+	uint32_t gpio_value;
+	uint32_t gpio = 127;
+	uint32_t lcd_id = 0;
+	
+
+	//add by yhj for check  lcd 1rd or 2rd
+	gpio_value =  gpio_status(gpio);
+	//dprintf(ALWAYS, "---yhj check before gpio_tlmm_config  get_com_borad_ver.gpio_value = 0x%x\n", gpio_value);
+	gpio_tlmm_config(gpio, 0, GPIO_INPUT, GPIO_PULL_UP, GPIO_2MA, GPIO_ENABLE);
+	udelay(10000);
+	
+	gpio_value = gpio_status(gpio);
+	//dprintf(ALWAYS, "---yhj check get_com_board_id.gpio_status is  %d\n",gpio_value);
+	if(gpio_value == 0){
+	 	lcd_id = LCD_1RD;
+	}else if(gpio_value == 1){
+	 	lcd_id = LCD_2RD;
+	}
+	//dprintf(ALWAYS, "---yhj check lcd_id = %d\n", lcd_id);
+	gpio_tlmm_config(gpio, 0, GPIO_INPUT, GPIO_NO_PULL, GPIO_2MA, GPIO_ENABLE);
+	udelay(10000);
+
+	return lcd_id;
+	
+}
+
+
+static int set_mem_manufacturer_info(char *buf, int len)
+{
+#define SHARED_IMEM_DDR_MR5_BASE         0x86001C0
+
+	char *str;
+	uint32_t mem_mr5 = *((uint32_t *)SHARED_IMEM_DDR_MR5_BASE);
+
+	dprintf(CRITICAL, "mem_mr5 = 0x%x\n", mem_mr5);
+	mem_mr5 = mem_mr5 & 0xff;
+
+	switch(mem_mr5)
+	{
+	case 1:
+		str = "Samsung";
+		break;
+	case 2:
+		str = "Qimonda";
+		break;
+	case 3:
+		str = "Elpida";
+		break;
+	case 4:
+		str = "Etron";
+		break;
+	case 5:
+		str = "Nanya";
+		break;
+	case 6:
+		str = "Hynix";
+		break;
+	case 7:
+		str = "Mosel";
+		break;
+	case 8:
+		str = "Winbond";
+		break;
+	case 9:
+		str = "ESMT";
+		break;
+	case 11:
+		str = "Spansion";
+		break;
+	case 12:
+		str = "SST";
+		break;
+	case 13:
+		str = "ZMOS";
+		break;
+	case 14:
+		str = "Intel";
+		break;
+	case 254:
+		str = "Numonyx";
+		break;
+	case 255:
+		str = "Micron";
+		break;
+	default:
+		str = "Unknown";
+	}
+
+	snprintf(buf, len, " mem_type=%s", str);
+	return 0;
+}
+
 void aboot_init(const struct app_descriptor *app)
 {
 	unsigned reboot_mode = 0;
 	unsigned hard_reboot_mode = 0;
 	bool boot_into_fastboot = false;
+	int com_board_ver;
+	int is_secure_fuse;
+	int com_board_id;
+	int com_lcd_id;
 
 	/* Setup page size information for nv storage */
 	if (target_is_emmc_boot())
@@ -3662,6 +4227,27 @@ void aboot_init(const struct app_descriptor *app)
 	}
 #endif
 #endif
+
+	com_board_ver = get_com_borad_ver();
+	sprintf(com_board_ver_str, " com_board_ver=%d",com_board_ver);
+	dprintf(ALWAYS, "com_board_ver_str: %s\n", com_board_ver_str);
+
+	is_secure_fuse = is_secure_boot_enable();
+	sprintf(is_secure_fuse_str, " is_secure_fuse=%d",is_secure_fuse);
+	dprintf(ALWAYS, "is_secure_fuse: %s\n", is_secure_fuse_str);
+
+	//fgy add for board_id
+	com_board_id = get_com_board_id();
+	sprintf(com_board_id_str, " com_board_id=%d",com_board_id);
+	dprintf(ALWAYS, "com_board_id_str: %s\n", com_board_id_str);
+
+	//yhj add for lcd_id
+	com_lcd_id = get_com_lcd_id();
+	sprintf(com_lcd_id_str, " com_lcd_id=%d",com_lcd_id);
+	dprintf(ALWAYS, "---yhj check com_lcd_id: %s\n", com_lcd_id_str);
+
+	set_mem_manufacturer_info(mem_info_str, sizeof(mem_info_str));
+	dprintf(ALWAYS, "mem_info_str:%s\n", mem_info_str);
 
 	target_serialno((unsigned char *) sn_buf);
 	dprintf(SPEW,"serial number: %s\n",sn_buf);
@@ -3812,6 +4398,46 @@ static int aboot_save_boot_hash_mmc(uint32_t image_addr, uint32_t image_size)
 	return 0;
 }
 
+#include <kernel/timer.h>
+#include "pm_smbchg_chgr.h"
+#include "pm_smbchg_driver.h"
+#include "smem.h"
+#include "aw2013_led.h"
+
+static enum handler_return timer_handler(struct timer *t, time_t now, void *arg)
+{
+	pm_smbchg_chgr_chgr_status_type chgr_sts;
+	static bool b_first = true;
+	static bool b_enabled= false;
+	
+	pm_smbchg_chgr_get_chgr_sts(SMEM_V7_SMEM_MAX_PMIC_DEVICES, &chgr_sts);
+	if(chgr_sts.charging_type  != PM_SMBCHG_CHGR_NO_CHARGING){
+		dprintf(SPEW, "type = %d\n", chgr_sts.charging_type);
+		if(!b_enabled){
+			aw2013_led_enable(TRUE);
+			b_enabled = true;
+			b_first = false;
+		}
+	} else {
+		dprintf(SPEW, "PM_SMBCHG_CHGR_NO_CHARGING\n");
+		if(b_enabled || b_first){
+			aw2013_led_enable(FALSE);
+			b_enabled = false;
+			b_first = false;
+		}
+	}
+	return INT_NO_RESCHEDULE;
+}
+
+static void aboot_entry(const struct app_descriptor *app, void *args)
+{
+	static timer_t s_timer;
+	timer_initialize(&s_timer);
+	pm_smbchg_driver_init(SMEM_V7_SMEM_MAX_PMIC_DEVICES);
+	timer_set_periodic(&s_timer, 1000, timer_handler, NULL);
+}
+
 APP_START(aboot)
 	.init = aboot_init,
+	.entry = aboot_entry,
 APP_END

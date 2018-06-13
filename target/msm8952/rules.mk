@@ -27,6 +27,7 @@ MODULES += \
 	dev/qpnp_haptic \
 	dev/vib \
 	lib/libfdt \
+	dev/aw2013_led \
 	dev/qpnp_wled \
 	dev/pmic/pmi8994 \
 	dev/pmic/fgsram \

@@ -37,6 +37,12 @@
 #include <platform.h>
 #include <target.h>
 
+#include "aw2013_led.h"
+#include "pm_smbchg_chgr.h"
+#include "pm_smbchg_driver.h"
+#include "pm_smbchg_usb_chgpth.h"
+#include "smem.h"
+
 /* sleep clock is 32.768 khz, 0x8000 count per second */
 #define MPM_SLEEP_TIMETICK_COUNT    0x8000
 #define PWRKEY_LONG_PRESS_COUNT     0xC000
@@ -110,6 +116,7 @@ static enum handler_return long_press_pwrkey_timer_func(struct timer *p_timer,
 			timer_set_oneshot(p_timer, PWRKEY_DETECT_FREQUENCY,
 				(timer_callback)long_press_pwrkey_timer_func, NULL);
 		} else {
+			aw2013_led_enable(FALSE);
 			shutdown_device();
 		}
 	}
@@ -130,6 +137,15 @@ static void wait_for_long_pwrkey_pressed()
 			timer_cancel(&pon_timer);
 			break;
 		}
+	}
+}
+
+static void turn_off_led_if_needed(void){
+	pm_smbchg_usb_chgpth_input_sts_type usb_sts = PM_SMBCHG_NO_CHGR_DETECTED;
+	pm_smbchg_driver_init(SMEM_V7_SMEM_MAX_PMIC_DEVICES);
+	pm_smbchg_usb_chgpth_input_sts(SMEM_V7_SMEM_MAX_PMIC_DEVICES, PM_SMBCHG_CHAR_TYPE_USB, &usb_sts);
+	if(usb_sts == PM_SMBCHG_NO_CHGR_DETECTED){
+		aw2013_led_enable(FALSE);
 	}
 }
 
@@ -163,4 +179,5 @@ void shutdown_detect()
 		 */
 		wait_for_long_pwrkey_pressed();
 	}
+	turn_off_led_if_needed();
 }

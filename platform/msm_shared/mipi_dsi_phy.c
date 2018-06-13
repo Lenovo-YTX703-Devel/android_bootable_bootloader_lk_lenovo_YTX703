@@ -488,6 +488,7 @@ int mdss_dsi_phy_init(struct mipi_panel_info *mipi)
 	/* 8994 and 8992 target */
 	switch (mipi->mdss_dsi_phy_db->pll_type) {
 	case DSI_PLL_TYPE_20NM:
+		dprintf(CRITICAL, "yxw test DSI_PLL_TYPE_20NM++++++++++++!\n");
 		ret = mdss_dsi_phy_20nm_init(mipi, mipi->ctl_base,
 				mipi->phy_base, mipi->reg_base);
 		if (mipi->dual_dsi)
@@ -495,10 +496,12 @@ int mdss_dsi_phy_init(struct mipi_panel_info *mipi)
 					mipi->sphy_base, mipi->reg_base);
 		break;
 	case DSI_PLL_TYPE_THULIUM:
+		dprintf(CRITICAL, "yxw test DSI_PLL_TYPE_THULIUM++++++++++++!\n");
 		dprintf(SPEW, "phy is configured with PLL driver\n");
 		break;
 	case DSI_PLL_TYPE_28NM:
 	default:
+		dprintf(CRITICAL, "yxw test DSI_PLL_TYPE_28NM++++++++++++!\n");
 		ret = mdss_dsi_phy_28nm_init(mipi, mipi->ctl_base,
 					mipi->phy_base, mipi->reg_base);
 		if (mipi->dual_dsi)

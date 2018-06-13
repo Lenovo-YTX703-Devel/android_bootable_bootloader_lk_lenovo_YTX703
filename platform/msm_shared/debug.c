@@ -63,7 +63,7 @@ static void write_dcc(char c)
 #if WITH_DEBUG_LOG_BUF
 
 #ifndef LK_LOG_BUF_SIZE
-#define LK_LOG_BUF_SIZE    (4096) /* align on 4k */
+#define LK_LOG_BUF_SIZE    (4096 * 8) /* align on 4k */
 #endif
 
 #define LK_LOG_COOKIE    0x474f4c52 /* "RLOG" in ASCII */
@@ -94,6 +94,13 @@ static void log_putc(char c)
 	log.header.size_written++;
 	if (unlikely(log.header.idx >= log.header.max_size))
 		log.header.idx = 0;
+}
+int log_getc(char* c, unsigned int index)
+{
+	if(unlikely(c == NULL || index > log.header.idx))
+		return -1;
+	*c = log.data[index];
+	return 0;
 }
 #endif /* WITH_DEBUG_LOG_BUF */
 

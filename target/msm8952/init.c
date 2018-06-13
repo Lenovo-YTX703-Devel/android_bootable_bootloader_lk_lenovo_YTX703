@@ -230,11 +230,16 @@ static void target_keystatus()
 		keys_post_event(KEY_VOLUMEUP, 1);
 }
 
+extern int lp855x_lk_shutdown(void);
+
 /* Configure PMIC and Drop PS_HOLD for shutdown */
 void shutdown_device()
 {
 	dprintf(CRITICAL, "Going down for shutdown.\n");
 
+	//add by yhj shutdown backlight lp855x
+	lp855x_lk_shutdown();
+	
 	/* Configure PMIC for shutdown */
 	pm8x41_reset_configure(PON_PSHOLD_SHUTDOWN);
 
